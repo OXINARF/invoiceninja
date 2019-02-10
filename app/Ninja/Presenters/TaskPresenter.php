@@ -50,12 +50,12 @@ class TaskPresenter extends EntityPresenter
         }
 
         if ($description = trim($this->entity->description)) {
-            $str .= $description . "\n\n";
+            $str .= $description;
         }
 
         $parts = json_decode($this->entity->time_log) ?: [];
         $times = [];
-
+/*
         foreach ($parts as $part) {
             $start = $part[0];
             if (count($part) == 1 || ! $part[1]) {
@@ -69,7 +69,7 @@ class TaskPresenter extends EntityPresenter
 
             $times[] = "### {$start} - {$end}";
         }
-
+*/
         return $str . implode("\n", $times);
     }
 
