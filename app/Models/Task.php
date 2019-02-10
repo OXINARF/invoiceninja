@@ -151,7 +151,8 @@ class Task extends EntityModel
                 $endTime = min($endTime, $endTimeCutoff);
             }
 
-            $duration += max($endTime - $startTime, 0);
+            $time = max($endTime - $startTime, 0);
+            $duration += (intdiv($time, 60) + (($time % 60 > 0) ? 1 : 0)) * 60;
         }
 
         return round($duration);
