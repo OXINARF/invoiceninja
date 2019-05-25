@@ -1313,38 +1313,51 @@ class InvoiceRepository extends BaseRepository
             return;
         }
 
-        $data = $invoice->toArray();
         $fee = $invoice->calcGatewayFee($gatewayTypeId);
 
         if ($fee == 0) {
             return;
         }
 
-        $date = $account->getDateTime()->format($account->getCustomDateFormat());
-        $feeItemLabel = $account->getLabel('gateway_fee_item') ?: ($fee >= 0 ? trans('texts.surcharge') : trans('texts.discount'));
+        if (! $feeDescriptionLabel = $account->getLabel('gateway_fee_description')) {
+            $feeDescriptionLabel = $fee >= 0 ? trans('texts.online_payment_surcharge') : trans('texts.online_payment_discount');
+        }
 
-        if ($feeDescriptionLabel = $account->getLabel('gateway_fee_description')) {
+        $customField = false;
+
+        if (strcmp($account->customLabel('invoice1'), $feeDescriptionLabel) == 0) {
+            $customField = 1;
+        } else if (strcmp($account->customLabel('invoice2'), $feeDescriptionLabel) == 0) {
+            $customField = 2;
+        }
+
+        $data = $invoice->toArray();
+
+        if (! $customField || $settings->hasTaxes()) {
+            $date = $account->getDateTime()->format($account->getCustomDateFormat());
+
             if (strpos($feeDescriptionLabel, '$date') !== false) {
                 $feeDescriptionLabel = str_replace('$date', $date, $feeDescriptionLabel);
             } else {
                 $feeDescriptionLabel .= ' • ' . $date;
             }
-        } else {
-            $feeDescriptionLabel = $fee >= 0 ? trans('texts.online_payment_surcharge') : trans('texts.online_payment_discount');
-            $feeDescriptionLabel .= ' • ' . $date;
-        }
 
-        $item = [];
-        $item['product_key'] = $feeItemLabel;
-        $item['notes'] = $feeDescriptionLabel;
-        $item['qty'] = 1;
-        $item['cost'] = $fee;
-        $item['tax_rate1'] = $settings->fee_tax_rate1;
-        $item['tax_name1'] = $settings->fee_tax_name1;
-        $item['tax_rate2'] = $settings->fee_tax_rate2;
-        $item['tax_name2'] = $settings->fee_tax_name2;
-        $item['invoice_item_type_id'] = INVOICE_ITEM_TYPE_PENDING_GATEWAY_FEE;
-        $data['invoice_items'][] = $item;
+            $feeItemLabel = $account->getLabel('gateway_fee_item') ?: ($fee >= 0 ? trans('texts.surcharge') : trans('texts.discount'));
+
+            $item = [];
+            $item['product_key'] = $feeItemLabel;
+            $item['notes'] = $feeDescriptionLabel;
+            $item['qty'] = 1;
+            $item['cost'] = $fee;
+            $item['tax_rate1'] = $settings->fee_tax_rate1;
+            $item['tax_name1'] = $settings->fee_tax_name1;
+            $item['tax_rate2'] = $settings->fee_tax_rate2;
+            $item['tax_name2'] = $settings->fee_tax_name2;
+            $item['invoice_item_type_id'] = INVOICE_ITEM_TYPE_PENDING_GATEWAY_FEE;
+            $data['invoice_items'][] = $item;
+        } else {
+            $data['custom_value' . $customField] += $fee;
+        }
 
         $this->save($data, $invoice);
     }
