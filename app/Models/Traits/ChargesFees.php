@@ -18,7 +18,11 @@ trait ChargesFees
         $fee = 0;
 
         if (! $account->gateway_fee_enabled) {
-            return false;
+            return 0;
+        }
+
+        if (! $settings) {
+            return 0;
         }
 
         if ($settings->fee_amount) {
@@ -44,18 +48,6 @@ trait ChargesFees
         }
 
         return round($fee, 2);
-    }
-
-    public function getGatewayFee()
-    {
-        $account = $this->account;
-
-        if (! $account->gateway_fee_enabled) {
-            return 0;
-        }
-
-        $item = $this->getGatewayFeeItem();
-        return $item ? $item->amount() : 0;
     }
 
     public function getGatewayFeeItem()
