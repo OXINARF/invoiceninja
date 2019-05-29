@@ -373,7 +373,8 @@ class StripePaymentDriver extends BasePaymentDriver
 
     public function createSource()
     {
-        $amount = intval($this->invoice()->getRequestedAmount() * 100);
+        $invoice = $this->invoice();
+        $amount = intval(($invoice->getRequestedAmount() + $invoice->calcGatewayFee($this->gatewayType, true)) * 100);
         $invoiceNumber = $this->invoice()->invoice_number;
         $currency = $this->client()->getCurrencyCode();
         $email = $this->contact()->email;
@@ -408,18 +409,7 @@ class StripePaymentDriver extends BasePaymentDriver
             $this->invitation->transaction_reference = $response['id'];
             $this->invitation->save();
 
-            if ($this->gatewayType == GATEWAY_TYPE_BITCOIN) {
-                return view('payments/stripe/bitcoin', [
-                    'client' => $this->client(),
-                    'account' => $this->account(),
-                    'invitation' => $this->invitation,
-                    'invoiceNumber' => $invoiceNumber,
-                    'amount' => $this->invoice()->getRequestedAmount(),
-                    'source' => $response,
-                ]);
-            } else {
-                return redirect($response['redirect']['url']);
-            }
+            return redirect($response['redirect']['url']);
         } else {
             throw new Exception($response);
         }
@@ -529,7 +519,13 @@ class StripePaymentDriver extends BasePaymentDriver
                     $userMailer->sendNotification($payment->user, $payment->invoice, 'payment_failed', $payment);
                 }
             } elseif ($eventType == 'charge.succeeded') {
-                $payment->markComplete();
+                if (! $payment->isCompleted()) {
+                    // apply gateway fees
+                    $invoiceRepo = app('App\Ninja\Repositories\InvoiceRepository');
+                    $invoiceRepo->setGatewayFee($payment->invoice, GatewayType::getIdFromAlias($source['payment_method_details']['type']));
+
+                    $payment->markComplete();
+                }
             } elseif ($eventType == 'charge.refunded') {
                 $payment->recordRefund($source['amount_refunded'] / 100 - $payment->refunded);
             }

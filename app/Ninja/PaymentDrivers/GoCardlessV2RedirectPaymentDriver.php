@@ -146,7 +146,13 @@ class GoCardlessV2RedirectPaymentDriver extends BasePaymentDriver
                     $userMailer->sendNotification($payment->user, $payment->invoice, 'payment_failed', $payment);
                 }
             } elseif ($action == 'paid_out') {
-                $payment->markComplete();
+                if (! $payment->isCompleted()) {
+                    // apply gateway fees
+                    $invoiceRepo = app('App\Ninja\Repositories\InvoiceRepository');
+                    $invoiceRepo->setGatewayFee($payment->invoice, $payment->payment_method->payment_type->gateway_type_id);
+
+                    $payment->markComplete();
+                }
             }
         }
     }
