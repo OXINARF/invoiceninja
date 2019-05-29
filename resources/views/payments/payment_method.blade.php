@@ -18,7 +18,7 @@
                                 @if (request()->capture)
                                     <h3>{{ trans('texts.update_payment_details') }}</h3>
                                 @else
-                                    <h3>{{ trans('texts.invoice') . ' ' . $invoiceNumber }}<span>|&nbsp; {{ trans('texts.amount_due') }}: <em>{{ $account->formatMoney($amount, $client, CURRENCY_DECORATOR_CODE) }}</em></span></h3>
+                                    <h3>{{ trans('texts.invoice') . ' ' . $invoiceNumber }}<span>|&nbsp; {{ trans('texts.amount_due') }}: <em>{{ $account->formatMoney($amount + $fee, $client, CURRENCY_DECORATOR_CODE) }}</em></span></h3>
                                 @endif
                             @elseif ($paymentTitle)
                                 <h2>{{ $paymentTitle }}

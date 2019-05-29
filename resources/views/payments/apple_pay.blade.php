@@ -12,7 +12,7 @@
             currency: '{{ strtolower($client->getCurrencyCode()) }}',
             total: {
                 label: '{{ trans('texts.invoice') . ' ' . $invitation->invoice->invoice_number }}',
-                amount: {{ $invitation->invoice->getRequestedAmount() * 100 }},
+                amount: {{ ($amount + $fee) * 100 }},
             },
         });
 
