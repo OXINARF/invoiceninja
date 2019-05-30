@@ -149,6 +149,9 @@ class EventServiceProvider extends ServiceProvider
             'App\Listeners\ActivityListener@restoredPayment',
             'App\Listeners\InvoiceListener@restoredPayment',
         ],
+        'App\Events\PaymentCompleted' => [
+            'App\Listeners\InvoiceListener@completedPayment',
+        ],
 
         // Credits
         'App\Events\CreditWasCreated' => [
