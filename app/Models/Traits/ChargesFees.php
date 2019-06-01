@@ -2,9 +2,13 @@
 
 namespace App\Models\Traits;
 
+use App\Models\Expense;
+use App\Models\ExpenseCategory;
 use App\Models\GatewayType;
 use App\Models\InvoiceItem;
 use App\Models\AccountGatewaySettings;
+use App\Models\Vendor;
+use Utils;
 
 /**
  * Class ChargesFees
@@ -71,5 +75,44 @@ trait ChargesFees
         }
 
         return false;
+    }
+
+    public function addFeeExpense($fee, $gatewayTypeId)
+    {
+        $gateway = $this->account->getGatewayByType($gatewayTypeId);
+
+        if (! $gateway) { // shouldn't happen
+            return;
+        }
+
+        $vendor = Vendor::where('account_id', $this->account->id)->where('name', 'like', '%' . $gateway->name . '%')->first();
+
+        if (! $vendor) { // only add expense if vendor has been created
+            return;
+        }
+
+        $category = ExpenseCategory::where('account_id', $this->account->id)->where('name', 'like', '%Gateway%')->first();
+
+        $expense = Expense::createNew($this);
+
+        if ($category) {
+            $expense->expense_category()->associate($category);
+        }
+
+        $this->load('client.currency');
+
+        $expense->client()->associate($this->client);
+        $expense->invoice()->associate($this);
+        $expense->vendor()->associate($vendor);
+
+        $expense->amount = $fee;
+        $expense->expense_date = Utils::toSqlDate(Utils::today());
+        $expense->invoice_currency_id = $this->client->currency_id ?: ($this->account->currency_id ?: 1);
+        $expense->expense_currency_id = $this->invoice_currency_id;
+        $expense->should_be_invoiced = 1;
+
+        // TODO: add tax rates
+
+        $expense->save();
     }
 }
