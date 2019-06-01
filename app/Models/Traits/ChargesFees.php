@@ -31,6 +31,7 @@ trait ChargesFees
         }
 
         // calculate final amount with tax
+        // TODO: this doesn't account for taxes when custom field is used (nor when invoice tax is used, but that is pre-existing)
         if ($includeTax) {
             $preTaxFee = $fee;
 
