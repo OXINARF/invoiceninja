@@ -398,7 +398,7 @@ class BasePaymentDriver
         return $items;
     }
 
-    private function updateClient()
+    protected function updateClient()
     {
         if (! $this->isGatewayType(GATEWAY_TYPE_CREDIT_CARD)) {
             return;

@@ -70,8 +70,8 @@ class StripePaymentDriver extends BasePaymentDriver
     {
         $rules = parent::rules();
 
-        if ($this->isGatewayType(GATEWAY_TYPE_APPLE_PAY)) {
-            return ['sourceToken' => 'required'];
+        if ($this->isGatewayType(GATEWAY_TYPE_CREDIT_CARD) || $this->isGatewayType(GATEWAY_TYPE_APPLE_PAY)) {
+            return ['sourcePaymentMethod' => 'required'];
         }
 
         if ($this->isGatewayType(GATEWAY_TYPE_BANK_TRANSFER)) {
@@ -93,6 +93,114 @@ class StripePaymentDriver extends BasePaymentDriver
             return true;
         } else {
             return $result;
+        }
+    }
+
+    public function createTransactionToken()
+    {
+        if (request()->capture) {
+            return;
+        }
+
+        $details = parent::paymentDetails();
+
+        $amount = $this->gateway()->purchase($details)->getAmountInteger();
+
+        $data = "amount={$amount}&currency={$details['currency']}&statement_descriptor={$details['description']}";
+
+        if ($customer = $this->customer()) {
+            $data += "&customer={$customer->token}";
+        }
+
+        $response = $this->makeStripeCall('POST', 'payment_intents', $data);
+
+        if (! $response || is_string($response)) {
+            throw new Exception($response ?: trans('texts.payment_error'));
+        }
+
+        $this->invitation->transaction_reference = $response['id'];
+        $this->invitation->save();
+
+        return $response['client_secret'];
+    }
+
+    public function completeOnsitePurchase($input = false, $paymentMethod = false)
+    {
+        $this->input = $input && count($input) ? $input : false;
+
+        if ($input) {
+            $this->updateClient();
+        }
+
+        // load or create token
+        if ($this->isGatewayType(GATEWAY_TYPE_TOKEN)) {
+            if (! $paymentMethod) {
+                $paymentMethod = PaymentMethod::clientId($this->client()->id)
+                    ->wherePublicId($this->sourceId)
+                    ->firstOrFail();
+            }
+
+            $invoicRepo = app('App\Ninja\Repositories\InvoiceRepository');
+            $invoicRepo->setGatewayFee($this->invoice(), $paymentMethod->payment_type->gateway_type_id);
+
+            if (! $this->meetsGatewayTypeLimits($paymentMethod->payment_type->gateway_type_id)) {
+                // The customer must have hacked the URL
+                Session::flash('error', trans('texts.limits_not_met'));
+
+                return redirect()->to('view/' . $this->invitation->invitation_key);
+            }
+        } else {
+            if ($this->shouldCreateToken()) {
+                $paymentMethod = $this->createToken();
+            }
+        }
+
+        if ($this->isTwoStep() || request()->capture) {
+            return;
+        }
+
+        // prepare and process payment
+        $data = $this->paymentDetails($paymentMethod);
+
+        if (! $this->invitation->transaction_reference || strcmp($this->invitation->transaction_reference, $data['paymentIntent'])) {
+            // The customer must have hacked the URL
+            throw new Exception(trans('texts.payment_error'));
+        }
+
+/*
+        if ($this->account()->send_item_details) {
+            $items = $this->paymentItems();
+        } else {
+            $items = null;
+        }
+        // TODO: send items to Stripe when creating PaymentIntent
+*/
+
+        $response = $this->makeStripeCall('GET', "payment_intents/{$data['paymentIntent']}");
+
+        if (! $response || is_string($response)) {
+            throw new Exception($response ?: trans('texts.payment_error'));
+        } else if (strcmp($response['status'], "succeeded")) {
+            throw new Exception(trans('texts.payment_error'));
+        }
+
+        $this->purchaseResponse = $response['charges']['data'][0];
+        $ref = $this->purchaseResponse['id'];
+
+        // wrap up
+        if ($ref) {
+            $payment = $this->createPayment($ref, $paymentMethod);
+
+            // TODO move this to stripe driver
+            if ($this->invitation->invoice->account->isNinjaAccount()) {
+                Session::flash('trackEventCategory', '/account');
+                Session::flash('trackEventAction', '/buy_pro_plan');
+                Session::flash('trackEventAmount', $payment->amount);
+            }
+
+            return $payment;
+        } else {
+            throw new Exception(trans('texts.payment_error'));
         }
     }
 
@@ -143,9 +251,13 @@ class StripePaymentDriver extends BasePaymentDriver
         // Stripe complains if the email field is set
         unset($data['email']);
 
-        if (! empty($this->input['sourceToken'])) {
-            $data['token'] = $this->input['sourceToken'];
+        if (! empty($this->input['sourcePaymentMethod'])) {
+            $data['paymentMethod'] = $this->input['sourcePaymentMethod'];
             unset($data['card']);
+        }
+
+        if (! empty($this->input['sourcePaymentIntent'])) {
+            $data['paymentIntent'] = $this->input['sourcePaymentIntent'];
         }
 
         if (! empty($this->input['plaidPublicToken'])) {
@@ -182,18 +294,28 @@ class StripePaymentDriver extends BasePaymentDriver
             unset($data['plaidPublicToken']);
             unset($data['plaidAccountId']);
             $data['token'] = $plaidResult['stripe_bank_account_token'];
-        }
 
-        $tokenResponse = $this->gateway()
-            ->createCard($data)
-            ->send();
+            $tokenResponse = $this->gateway()
+                ->createCard($data)
+                ->send();
 
-        if ($tokenResponse->isSuccessful()) {
-            $this->tokenResponse = $tokenResponse->getData();
+            if ($tokenResponse->isSuccessful()) {
+                $this->tokenResponse = $tokenResponse->getData();
 
-            return parent::createToken();
+                return parent::createToken();
+            } else {
+                throw new Exception($tokenResponse->getMessage());
+            }
         } else {
-            throw new Exception($tokenResponse->getMessage());
+            $response = $this->makeStripeCall('POST', "payment_methods/{$data['paymentMethod']}/attach", "customer={$data['customerReference']}");
+
+            if (! $response || is_string($response)) {
+                throw new Exception($response ?: trans('texts.payment_error'));
+            }
+
+            $this->tokenResponse = $response;
+
+            return parent::createToken;
         }
     }
 
@@ -218,6 +340,9 @@ class StripePaymentDriver extends BasePaymentDriver
         } elseif (! empty($data['object']) && $data['object'] == 'customer') {
             $sources = ! empty($data['sources']) ? $data['sources'] : $data['cards'];
             $source = reset($sources['data']);
+        } elseif (! empty($data['object']) && $data['object'] == 'payment_method') {
+            $source = $data[$data['type']];
+            $source['id'] = $data['id'];
         } elseif (! empty($data['source'])) {
             $source = $data['source'];
         } elseif (! empty($data['card'])) {
