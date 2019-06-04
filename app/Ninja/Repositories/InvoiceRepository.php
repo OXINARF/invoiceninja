@@ -1360,6 +1360,9 @@ class InvoiceRepository extends BaseRepository
         }
 
         $this->save($data, $invoice);
+
+        // TODO: this is technically incorrect since it doesn't account for taxes
+        $invoice->addFeeExpense($fee, $gatewayTypeId);
     }
 
     public function findPhonetically($invoiceNumber)

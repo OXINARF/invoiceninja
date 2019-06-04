@@ -14,6 +14,7 @@ use App\Events\PaymentWasRefunded;
 use App\Events\PaymentWasRestored;
 use App\Events\PaymentWasVoided;
 use App\Models\Activity;
+use App\Models\Expense;
 use Auth;
 use Utils;
 
@@ -85,6 +86,14 @@ class InvoiceListener
 
             $invoice->updateBalances($adjustment, $partial);
             $invoice->updatePaidStatus(true);
+
+            $expenses = $invoice->expenses()->whereNull('payment_type_id')->whereNull('payment_date')->get();
+
+            foreach ($expenses as $expense) {
+                $expense->payment_type()->associate($payment->payment_type);
+                $expense->payment_date = Utils::toSqlDate(Utils::today());;
+                $expense->save();
+            }
 
             // store a backup of the invoice
             $activity = Activity::wherePaymentId($payment->id)
