@@ -455,7 +455,7 @@ class BasePaymentDriver
             'currency' => $invoice->getCurrencyCode(),
             'returnUrl' => $completeUrl,
             'cancelUrl' => $this->invitation->getLink(),
-            'description' => trans('texts.' . $invoice->getEntityType()) . " {$invoice->invoice_number}",
+            'description' => substr(trans('texts.' . $invoice->getEntityType()), 0, 3) . " {$invoice->invoice_number}",
             'transactionId' => $invoice->invoice_number,
             'transactionType' => 'Purchase',
             'clientIp' => Request::getClientIp(),
