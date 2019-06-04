@@ -214,7 +214,7 @@ class Task extends EntityModel
      */
     public function getHours()
     {
-        return round($this->getDuration() / (60 * 60), 2);
+        return ceil($this->getDuration() / (60 * 60) * 10000) / 10000;
     }
 
     /**
