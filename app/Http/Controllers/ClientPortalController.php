@@ -168,7 +168,6 @@ class ClientPortalController extends BaseController
         if ($invoice->canBePaid()) {
             if ($paymentDriver = $account->paymentDriver($invitation, GATEWAY_TYPE_CREDIT_CARD)) {
                 $data += [
-                    'transactionToken' => $paymentDriver->createTransactionToken(),
                     'partialView' => $paymentDriver->partialView(),
                     'accountGateway' => $paymentDriver->accountGateway,
                 ];
@@ -279,7 +278,6 @@ class ClientPortalController extends BaseController
             'client' => $client,
             'gateway' => $account->getTokenGateway(),
             'paymentMethods' => $customer ? $customer->payment_methods : false,
-            'transactionToken' => $paymentDriver ? $paymentDriver->createTransactionToken() : false,
         ];
 
         return response()->view('invited.dashboard', $data);
@@ -831,7 +829,6 @@ class ClientPortalController extends BaseController
             'paymentMethods' => $customer ? $customer->payment_methods : false,
             'gateway' => $account->getTokenGateway(),
             'title' => trans('texts.payment_methods'),
-            'transactionToken' => $paymentDriver->createTransactionToken(),
         ];
 
         return response()->view('payments.paymentmethods', $data);
