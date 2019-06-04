@@ -40,7 +40,7 @@
                 event.preventDefault();
 
                 var data = {
-                    amount_int: {{ $invitation->invoice->getRequestedAmount() * 100 }},
+                    amount_int: {{ ($amount + $fee) * 100 }},
                     currency: '{{ $invitation->invoice->getCurrencyCode() }}',
                     email: '{{ $contact->email }}',
                 };

@@ -128,18 +128,17 @@ class BasePaymentDriver
 
         $gateway = $this->accountGateway->gateway;
 
-        if (! $this->meetsGatewayTypeLimits($this->gatewayType)) {
-            // The customer must have hacked the URL
-            Session::flash('error', trans('texts.limits_not_met'));
-
-            return redirect()->to('view/' . $this->invitation->invitation_key);
-        }
-
         if (! $this->isGatewayType(GATEWAY_TYPE_TOKEN)) {
-            // apply gateway fees
-            $invoicRepo = app('App\Ninja\Repositories\InvoiceRepository');
-            $invoicRepo->setGatewayFee($this->invoice(), $this->gatewayType);
+            if (! $this->meetsGatewayTypeLimits($this->gatewayType)) {
+                // The customer must have hacked the URL
+                Session::flash('error', trans('texts.limits_not_met'));
+
+                return redirect()->to('view/' . $this->invitation->invitation_key);
+            }
         }
+
+        $invoicRepo = app('App\Ninja\Repositories\InvoiceRepository');
+        $invoicRepo->clearGatewayFee($this->invoice());
 
         // For these gateway types we use the API directrly rather than Omnipay
         if ($this->shouldUseSource()) {
@@ -176,6 +175,7 @@ class BasePaymentDriver
             'showBreadcrumbs' => false,
             'url' => $url,
             'amount' => $this->invoice()->getRequestedAmount(),
+            'fee' => $this->invoice()->calcGatewayFee($this->gatewayType, true),
             'invoiceNumber' => $this->invoice()->invoice_number,
             'client' => $this->client(),
             'contact' => $this->invitation->contact,
@@ -284,26 +284,20 @@ class BasePaymentDriver
                     ->firstOrFail();
             }
 
-            $invoicRepo = app('App\Ninja\Repositories\InvoiceRepository');
-            $invoicRepo->setGatewayFee($this->invoice(), $paymentMethod->payment_type->gateway_type_id);
-
-            if (! $this->meetsGatewayTypeLimits($paymentMethod->payment_type->gateway_type_id)) {
-                // The customer must have hacked the URL
-                Session::flash('error', trans('texts.limits_not_met'));
-
-                return redirect()->to('view/' . $this->invitation->invitation_key);
-            }
+            $gatewayTypeId = $paymentMethod->payment_type->gateway_type_id;
         } else {
             if ($this->shouldCreateToken()) {
                 $paymentMethod = $this->createToken();
             }
 
-            if (! $this->meetsGatewayTypeLimits($this->gatewayType)) {
-                // The customer must have hacked the URL
-                Session::flash('error', trans('texts.limits_not_met'));
+            $gatewayTypeId = $this->gatewayType;
+        }
 
-                return redirect()->to('view/' . $this->invitation->invitation_key);
-            }
+        if (! $this->meetsGatewayTypeLimits($gatewayTypeId)) {
+            // The customer must have hacked the URL
+            Session::flash('error', trans('texts.limits_not_met'));
+
+            return redirect()->to('view/' . $this->invitation->invitation_key);
         }
 
         if ($this->isTwoStep() || request()->capture) {
@@ -448,10 +442,11 @@ class BasePaymentDriver
     {
         $invoice = $this->invoice();
         $gatewayTypeAlias = $this->gatewayType == GATEWAY_TYPE_TOKEN ? $this->gatewayType : GatewayType::getAliasFromId($this->gatewayType);
+        $gatewayTypeId = $paymentMethod ? $paymentMethod->payment_type->gateway_type_id : $this->gatewayType;
         $completeUrl = $this->invitation->getLink('complete', true) . '/' . $gatewayTypeAlias;
 
         $data = [
-            'amount' => $invoice->getRequestedAmount(),
+            'amount' => $invoice->getRequestedAmount() + $invoice->calcGatewayFee($gatewayTypeId, true),
             'currency' => $invoice->getCurrencyCode(),
             'returnUrl' => $completeUrl,
             'cancelUrl' => $this->invitation->getLink(),
@@ -709,11 +704,17 @@ class BasePaymentDriver
         }
         $invoice->markSentIfUnsent();
 
+        if ($paymentMethod) {
+            $gatewayTypeId = $paymentMethod->payment_type->gateway_type_id;
+        } else {
+            $gatewayTypeId = $this->gatewayType;
+        }
+
         $payment = Payment::createNew($invitation);
         $payment->invitation_id = $invitation->id;
         $payment->account_gateway_id = $this->accountGateway->id;
         $payment->invoice_id = $invoice->id;
-        $payment->amount = $invoice->getRequestedAmount();
+        $payment->amount = $invoice->getRequestedAmount() + $invoice->calcGatewayFee($gatewayTypeId, true);
         $payment->client_id = $invoice->client_id;
         $payment->contact_id = $invitation->contact_id;
         $payment->transaction_reference = $ref;
@@ -730,6 +731,12 @@ class BasePaymentDriver
             $payment->email = $paymentMethod->email;
             $payment->bank_name = $paymentMethod->bank_name;
             $payment->payment_method_id = $paymentMethod->id;
+        }
+
+        if ($payment->isCompleted()) {
+            // apply gateway fees
+            $invoiceRepo = app('App\Ninja\Repositories\InvoiceRepository');
+            $invoiceRepo->setGatewayFee($this->invoice(), $gatewayTypeId);
         }
 
         $payment->save();
@@ -899,8 +906,20 @@ class BasePaymentDriver
         $this->input = $input;
         $transRef = array_get($this->input, 'token') ?: $this->invitation->transaction_reference;
 
+        if ($this->isGatewayType(GATEWAY_TYPE_TOKEN)) {
+            $paymentMethod = PaymentMethod::clientId($this->client()->id)
+                ->wherePublicId($this->sourceId)
+                ->withTrashed()
+                ->firstOrFail();
+
+            $gatewayTypeId = $paymentMethod->payment_type->gateway_type_id;
+        } else {
+            $paymentMethod = null;
+            $gatewayTypeId = $this->gatewayType;
+        }
+
         if (method_exists($this->gateway(), 'completePurchase')) {
-            $details = $this->paymentDetails();
+            $details = $this->paymentDetails($paymentMethod);
             $response = $this->gateway()->completePurchase($details)->send();
             $paymentRef = $response->getTransactionReference() ?: $transRef;
 
@@ -927,7 +946,7 @@ class BasePaymentDriver
             throw new Exception(trans('texts.payment_error_code', ['code' => 'DT']));
         }
 
-        return $this->createPayment($paymentRef);
+        return $this->createPayment($paymentRef, $paymentMethod);
     }
 
     public function tokenLinks()

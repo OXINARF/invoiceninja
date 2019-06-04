@@ -48,6 +48,13 @@ class Payment extends EntityModel
     protected $presenter = 'App\Ninja\Presenters\PaymentPresenter';
 
     /**
+     * @var array
+     */
+    protected $attributes = [
+	    'payment_status_id' => PAYMENT_STATUS_COMPLETED,
+    ];
+
+    /**
      * @return mixed
      */
     public function invoice()

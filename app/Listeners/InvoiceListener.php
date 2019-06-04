@@ -77,23 +77,26 @@ class InvoiceListener
     public function createdPayment(PaymentWasCreated $event)
     {
         $payment = $event->payment;
-        $invoice = $payment->invoice;
-        $adjustment = $payment->amount * -1;
-        $partial = max(0, $invoice->partial - $payment->amount);
 
-        $invoice->updateBalances($adjustment, $partial);
-        $invoice->updatePaidStatus(true);
+        if ($payment->isCompleted()) {
+            $invoice = $payment->invoice;
+            $adjustment = $payment->amount * -1;
+            $partial = max(0, $invoice->partial - $payment->amount);
 
-        // store a backup of the invoice
-        $activity = Activity::wherePaymentId($payment->id)
-                        ->whereActivityTypeId(ACTIVITY_TYPE_CREATE_PAYMENT)
-                        ->first();
-        $activity->json_backup = $invoice->hidePrivateFields()->toJSON();
-        $activity->save();
+            $invoice->updateBalances($adjustment, $partial);
+            $invoice->updatePaidStatus(true);
 
-        if ($invoice->balance == 0 && $payment->account->auto_archive_invoice) {
-            $invoiceRepo = app('App\Ninja\Repositories\InvoiceRepository');
-            $invoiceRepo->archive($invoice);
+            // store a backup of the invoice
+            $activity = Activity::wherePaymentId($payment->id)
+                            ->whereActivityTypeId(ACTIVITY_TYPE_CREATE_PAYMENT)
+                            ->first();
+            $activity->json_backup = $invoice->hidePrivateFields()->toJSON();
+            $activity->save();
+
+            if ($invoice->balance == 0 && $payment->account->auto_archive_invoice) {
+                $invoiceRepo = app('App\Ninja\Repositories\InvoiceRepository');
+                $invoiceRepo->archive($invoice);
+            }
         }
     }
 
@@ -174,6 +177,14 @@ class InvoiceListener
 
         $invoice->updateBalances($adjustment);
         $invoice->updatePaidStatus();
+    }
+
+    /**
+     * @param PaymentCompleted $event
+     */
+    public function completedPayment(PaymentCompleted $event)
+    {
+        $this->createdPayment(new PaymentWasCreated($event->$payment));
     }
 
     public function jobFailed(JobExceptionOccurred $exception)
