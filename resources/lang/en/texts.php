@@ -760,7 +760,7 @@ $LANG = array(
     'activity_7' => ':contact viewed invoice :invoice for :client',
     'activity_8' => ':user archived invoice :invoice',
     'activity_9' => ':user deleted invoice :invoice',
-    'activity_10' => ':contact entered payment :payment for :invoice for :client',
+    'activity_10' => ':contact entered payment :payment for :payment_amount on invoice :invoice for :client',
     'activity_11' => ':user updated payment :payment',
     'activity_12' => ':user archived payment :payment',
     'activity_13' => ':user deleted payment :payment',
@@ -3159,6 +3159,7 @@ $LANG = array(
     'design' => 'Design',
     'password_is_too_short' => 'Password is too short',
     'failed_to_find_record' => 'Failed to find record',
+    'usually_pays_in_days' => 'Days',
 
 );
 
